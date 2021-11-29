@@ -1,6 +1,6 @@
-# Move Operator
+# Move Function
 
-* Proposal: [SE-NNNN](NNNN-move-operator.md)
+* Proposal: [SE-NNNN](NNNN-move-function.md)
 * Authors: [Michael Gottesman](https://github.com/gottesmm)
 * Review Manager: TBD
 * Status: **Awaiting implementation**
