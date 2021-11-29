@@ -83,11 +83,11 @@ func f(_ x: SomeClassType) -> () {
 }
 ```
 
-notice how even though we are taking `x` at +1 into `consumeX`, we are still
-allowed to pass `x` again to `useX`, `consumeX`. This is because `x` is a
-copyable type and thus the compiler will just insert an extra copy of `x`
-implicitly before calling the first `consumeX` to lifetime extend x over
-`consumeX`, in pseudo-code:
+notice how even though we are going to release `x` within `consumeX` (due to the
+`__owned` attribute on its parameter), we are still allowed to pass `x` again to
+`useX`, `consumeX`. This is because `x` is a copyable type and thus the compiler
+will just insert an extra copy of `x` implicitly before calling the first
+`consumeX` to lifetime extend x over `consumeX`, in pseudo-code:
 
 ```
 func useX(_ x: SomeClassType) -> () {}
