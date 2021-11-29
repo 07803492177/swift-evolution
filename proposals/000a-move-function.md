@@ -301,8 +301,8 @@ already in tree behind the `-enable-experimental-move-only` frontend flag.
 
 ## Source compatibility
 
-This is additive and does not effect source compatibility since the stdlib has
-never vended a "move" function before.
+This is additive. If a user already in their module has a function called
+"move", they can call the Stdlib specific move by calling Swift.move.
 
 ## Effect on ABI stability
 
@@ -314,9 +314,7 @@ None, this is additive.
 
 ## Alternatives considered
 
-The only other place that we could implement this functionality would be in the
-typechecker, but that would prevent us from using flow sensitive diagnostics. We
-could also introduce a separate `drop` function like languages like Rust does
+We could also introduce a separate `drop` function like languages like Rust does
 that doesn't have a result like `move` does. We decided not to go with this
 since in Swift the idiomatic way to throw away a value is to assign to `_`
 implying that the idiomatic way to write `drop` would be:
