@@ -32,6 +32,37 @@ useX(x) // error, x's lifetime was ended at [1]
 useY(y) // error, y's lifetime was ended at [2]
 ```
 
+this allows the user to influence where the compiler inserts retain releases
+manually that is future-proof against new changes due to the
+diagnostic. Consider the following array/uniqueness example:
+
+```
+// Array/Uniqueness Example
+
+// Get an array
+var x: [Int] = getArray()
+
+// x is appended to. After this point, we know that x is unique. We want to
+// preserve that property.
+x.append(5)
+
+// We create a new variable y so we can write an algorithm where we may
+// change the value of x (causing a copy), but we might not.
+var y = x
+// ... long algorithm using y ...
+let _ = move(y) // end the lifetime of y. It is illegal to use y later and
+                // people can not add a new reference by mistake.
+
+// x is again unique.
+```
+
+in the example above without the `move`, y's lifetime would go to end of scope
+and there is a possibility that we may copy x again later in the function. But
+the diagnostic guarantees that y's lifetime will end at the move meaning after
+the move, `x` can be known to always be unique again. Importantly if someone
+later modifies the code and tries to use y later, a diagnostic will be emitted
+so one can program with confidence against subsequent source code changes.
+
 Swift-evolution thread: [Discussion thread topic for that proposal](https://forums.swift.org/)
 
 ## Motivation: Allow binding lifetimes to be ended by use of the move function
@@ -40,10 +71,11 @@ In Swift today there is not a language guaranteed method to end the lifetime of
 a specific variable binding. As an example, consider the following code:
 
 ```
-func useX(_ x: Klass) -> () {}
-func consumeX(_ x: __owned Klass) -> () {}
+func useX(_ x: SomeClassType) -> () {}
+// __owned causes x to be released before consumeX returns rather than in f.
+func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func f(_ x: Klass) -> () {
+func f(_ x: SomeClassType) -> () {
   useX(x)
   consumeX(x)
   useX(x)
@@ -58,10 +90,10 @@ implicitly before calling the first `consumeX` to lifetime extend x over
 `consumeX`, in pseudo-code:
 
 ```
-func useX(_ x: Klass) -> () {}
-func consumeX(_ x: __owned Klass) -> () {}
+func useX(_ x: SomeClassType) -> () {}
+func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func g(_ x: Klass) -> () {
+func g(_ x: SomeClassType) -> () {
   useX(x)
   let hiddenCopy = x
   consumeX(hiddenCopy)
@@ -74,8 +106,13 @@ for general programming use cases this is great since it enables the user to not
 have to worry about the low level details and just to write code regardless of
 the specific calling conventions of the code they are calling. But what if we
 are in a context where we care about such low level details and want some way to
-guarantee that a value will truly never be used again. In such a case, we are up
-a creek and the compiler will not help us.
+guarantee that a value will truly never be used again (e.x.: restoring
+uniqueness to an Array or controlling where the compiler inserts ARC). In such a
+case, we are up a creek and the compiler will not help us.
+
+NOTE: One could write code using scopes but it is bug prone and one has no
+guarantee that the property that all future programmers will respect the
+invariant that one is attempting to maintain.
 
 ## Proposed solution: Move Function + "Use After Move" Diagnostic
 
@@ -86,22 +123,22 @@ be unable to be used again locally. If such a use occurs, the compiler will emit
 an error diagnostic. Lets look at this in practice using the following code:
 
 ```
-func useX(_ x: Klass) -> () {}
-func consumeX(_ x: __owned Klass) -> () {}
+func useX(_ x: SomeClassType) -> () {}
+func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func h(_ x: Klass) -> () {
+func h(_ x: SomeClassType) -> () { // Creation of x binding
   useX(x)
-  let _ = move(x)
-  useX(x)
-  consumeX(x)
+  let _ = move(x) // Lifetime of x is ended here.
+  useX(x)         // !! but we use it here...
+  consumeX(x)     // !!   and here afterwards. Error?!
 }
 ```
 
-In this case, we get the following output from the compiler:
+In this case, we get the following output from the compiler as expected:
 
 ```
 test.swift:7:15: error: 'x' used after being moved
-func h(_ x: Klass) -> () {
+func h(_ x: SomeClassType) -> () {
               ^
 test.swift:9:11: note: move here
   let _ = move(x)
@@ -120,15 +157,15 @@ cause the problem. We can then resolve this by introducing a new binding ‘othe
 for those uses, e.x.:
 
 ```
-func useX(_ x: Klass) -> () {}
-func consumeX(_ x: __owned Klass) -> () {}
+func useX(_ x: SomeClassType) -> () {}
+func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func k(_ x: Klass) -> () {
+func k(_ x: SomeClassType) -> () {
   useX(x)
-  let other = x
-  let _ = move(x)
-  useX(other)
-  consumeX(other)
+  let other = x   // other is a new binding used to extend the lifetime of x
+  let _ = move(x) // x's lifetime ends
+  useX(other)     // other is used here... no problem.
+  consumeX(other) // other is used here... no problem.
 }
 ```
 
@@ -140,15 +177,15 @@ after the move of x. Of course, since other is a local let, we can also apply
 move to that and would also get diagnostics, e.x.:
 
 ```
-func useX(_ x: Klass) -> () {}
-func consumeX(_ x: __owned Klass) -> () {}
+func useX(_ x: SomeClassType) -> () {}
+func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func l(_ x: Klass) -> () {
+func l(_ x: SomeClassType) -> () {
   useX(x)
   let other = x
   let _ = move(x)
-  useX(move(other))
-  consumeX(other)
+  useX(move(other)) // other's lifetime ended here.
+  consumeX(other)   // !! Error! other's lifetime ended on previous line!
 }
 ```
 
@@ -170,10 +207,10 @@ In fact, since each variable emits separable diagnostics, if we combine our code
 examples as follows,
 
 ```
-func useX(_ x: Klass) -> () {}
-func consumeX(_ x: __owned Klass) -> () {}
+func useX(_ x: SomeClassType) -> () {}
+func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func m(_ x: Klass) -> () {
+func m(_ x: SomeClassType) -> () {
   useX(x)
   let other = x
   let _ = move(x)
@@ -187,7 +224,7 @@ we get separable nice diagnostics:
 
 ```
 test.swift:7:15: error: 'x' used after being moved
-func m(_ x: Klass) -> () {
+func m(_ x: SomeClassType) -> () {
               ^
 test.swift:10:11: note: move here
   let _ = move(x)
@@ -212,7 +249,7 @@ compiler how to emit diagnostics. If one attempts to use move on something we
 don’t support, one will get an error diagnostic, e.x.:
 
 ```
-var global = Klass()
+var global = SomeClassType()
 func n() -> () {
   let _ = move(global)
 }
