@@ -280,9 +280,9 @@ func move<T>(_ t: __owned T) -> T {
 
 Builtin.move is a hook in the compiler to force emission of special SIL "move"
 instructions. These move instructions trigger in the SILOptimizer two special
-passes that prove that the underlying binding does not have any uses that are
-reachable from the move using a flow sensitive dataflow. Since it is flow
-sensitive, one is able to end the lifetime of a value conditionally:
+diagnostic passes that prove that the underlying binding does not have any uses
+that are reachable from the move using a flow sensitive dataflow. Since it is
+flow sensitive, one is able to end the lifetime of a value conditionally:
 
 ```
 if (...) {
@@ -293,6 +293,41 @@ if (...) {
 }
 // But I can't use x here.
 ```
+
+This works because the diagnostic passes are able to take advantage of
+control-flow information already tracked by the optimizer to identify all places
+where a variable use could possible following passing the variable to as an
+argument to `move()`.
+
+In practice, the way to think about this dataflow is to think about paths
+through the program. Consider our previous example with some annotations:
+
+```
+// [PATH1][PATH2]
+if (...) {
+  // [PATH1] (if true)
+  let y = move(x)
+  // I can't use x anymore here!
+} else {
+  // [PATH2] (else)
+  // I can still use x here!
+}
+// [PATH1][PATH2] (continuation)
+// But I can't use x here.
+```
+
+in this example, there are only 2 program paths, the `[PATH1]` that goes through
+the if true scope and into the continuation and `[PATH2]` through the else into
+the continuation. Notice how the move only occurs along `[PATH1]` but that since
+`[PATH1]` goes through the continuation that one can not use x again in the
+continuation despite `[PATH2]` being safe.
+
+Another metaphor that the author has found helpful is that one can imagine the
+program as a system of diverging and converging pipes. The dataflow analysis
+performed here is equivalent to placing a marker die at the pipe where the move
+occurs. Then the pipes propagate that die through the converging pipes. Every
+place that the die can reach is a place where it would be illegal to place new
+uses of a moved variable.
 
 The value based analysis uses Ownership SSA to determine if values are used
 after the move. The address based analysis is an SSA based analysis that
