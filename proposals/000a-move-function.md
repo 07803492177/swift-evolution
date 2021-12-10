@@ -1,7 +1,7 @@
 # Move Function
 
 * Proposal: [SE-NNNN](NNNN-move-function.md)
-* Authors: [Michael Gottesman](https://github.com/gottesmm)
+* Authors: [Michael Gottesman](https://github.com/gottesmm), [Andrew Trick](https://github.com/atrick)
 * Review Manager: TBD
 * Status: **Awaiting implementation**
 
@@ -19,9 +19,9 @@
 
 In this document I proposing adding a new function called `move` to the swift
 standard library that can be used to end the lifetime of a specific local let,
-var, or function parameter. In order to enforce this, the compiler will emit a
-flow sensitive diagnostic upon any uses that are after the move function. As an
-example:
+local var, or consuming parameter. In order to enforce this, the compiler will
+emit a flow sensitive diagnostic upon any uses that are after the move
+function. As an example:
 
 ```
 // Ends lifetime of x, y's lifetime begins.
@@ -32,43 +32,61 @@ useX(x) // error, x's lifetime was ended at [1]
 useY(y) // error, y's lifetime was ended at [2]
 ```
 
-this allows the user to influence where the compiler inserts retain releases
-manually that is future-proof against new changes due to the
+this allows the user to influence uniqueness and where the compiler inserts
+retain releases manually that is future-proof against new changes due to the
 diagnostic. Consider the following array/uniqueness example:
 
 ```
 // Array/Uniqueness Example
 
 // Get an array
-var x: [Int] = getArray()
+func test() {
+  var x: [Int] = getArray()
+  
+  // x is appended to. After this point, we know that x is unique. We want to
+  // preserve that property.
+  x.append(5)
+  
+  // We create a new variable y so we can write an algorithm where we may
+  // change the value of x (causing a copy), but we might not.
+  var y = x
+  // ... long algorithm using y ...
+  let _ = move(y) // end the lifetime of y. It is illegal to use y later and
+                  // people can not add a new reference by mistake. This ensures that
+                  // a release occurs at this point in the code as well since move
+                  // consumes its parameter.
 
-// x is appended to. After this point, we know that x is unique. We want to
-// preserve that property.
-x.append(5)
-
-// We create a new variable y so we can write an algorithm where we may
-// change the value of x (causing a copy), but we might not.
-var y = x
-// ... long algorithm using y ...
-let _ = move(y) // end the lifetime of y. It is illegal to use y later and
-                // people can not add a new reference by mistake.
-
-// x is again unique.
+  // x is again unique so we know we can append without copying.
+  x.append(7)
+}
 ```
 
-in the example above without the `move`, y's lifetime would go to end of scope
-and there is a possibility that we may copy x again later in the function. But
-the diagnostic guarantees that y's lifetime will end at the move meaning after
-the move, `x` can be known to always be unique again. Importantly if someone
-later modifies the code and tries to use y later, a diagnostic will be emitted
-so one can program with confidence against subsequent source code changes.
+in the example above without the `move`, `y`'s lifetime would go to end of scope
+and there is a possibility that we or some later programmer may copy x again
+later in the function. But luckily since we also have the diagnostic guarantees
+that `y`'s lifetime will end at the move meaning after the move, `x` can be
+known to always be unique again. Importantly if someone later modifies the code
+and tries to use y later, the diagnostic will always be emitted so one can
+program with confidence against subsequent source code changes.
+
+As a final dimension to this, once Swift has move only values (values that are
+not copyable), `move` as we have defined it above automatically generalizes to a
+utility that runs end of the lifetime code associated with the value (e.x.:
+destructors for unique classes). This is a basic facility if one wants to be
+able to express things like having a move only type that represents a file
+descriptor and one wants to guarantee that the descriptor closes. That being
+said, the authors think this facility is useful enough to bring forward and do
+early in preparation for the addition of move semantics to the language. Since
+this aspect is not directly related to this proposal, the author will not
+mention it further.
 
 Swift-evolution thread: [Discussion thread topic for that proposal](https://forums.swift.org/)
 
 ## Motivation: Allow binding lifetimes to be ended by use of the move function
 
 In Swift today there is not a language guaranteed method to end the lifetime of
-a specific variable binding. As an example, consider the following code:
+a specific variable binding preventing users from easily controlling properties
+like uniqueness and ARC traffic. As an example, consider the following code:
 
 ```
 func useX(_ x: SomeClassType) -> () {}
@@ -258,7 +276,7 @@ func n() -> () {
 yielding,
 
 ```
-test.swift:9:11: error: move applied to value that the compiler does not know how to check. Please file a bug or an enhancement request!
+test.swift:9:11: error: move applied to value that the compiler does not support checking
   let _ = move(global)
           ^
 ```
@@ -280,9 +298,9 @@ func move<T>(_ t: __owned T) -> T {
 
 Builtin.move is a hook in the compiler to force emission of special SIL "move"
 instructions. These move instructions trigger in the SILOptimizer two special
-passes that prove that the underlying binding does not have any uses that are
-reachable from the move using a flow sensitive dataflow. Since it is flow
-sensitive, one is able to end the lifetime of a value conditionally:
+diagnostic passes that prove that the underlying binding does not have any uses
+that are reachable from the move using a flow sensitive dataflow. Since it is
+flow sensitive, one is able to end the lifetime of a value conditionally:
 
 ```
 if (...) {
@@ -294,10 +312,40 @@ if (...) {
 // But I can't use x here.
 ```
 
+This works because the diagnostic passes are able to take advantage of
+control-flow information already tracked by the optimizer to identify all places
+where a variable use could possible following passing the variable to as an
+argument to `move()`.
+
+In practice, the way to think about this dataflow is to think about paths
+through the program. Consider our previous example with some annotations:
+
+```
+// [PATH1][PATH2]
+if (...) {
+  // [PATH1] (if true)
+  let y = move(x)
+  // I can't use x anymore here!
+} else {
+  // [PATH2] (else)
+  // I can still use x here!
+}
+// [PATH1][PATH2] (continuation)
+// But I can't use x here.
+```
+
+in this example, there are only 2 program paths, the `[PATH1]` that goes through
+the if true scope and into the continuation and `[PATH2]` through the else into
+the continuation. Notice how the move only occurs along `[PATH1]` but that since
+`[PATH1]` goes through the continuation that one can not use x again in the
+continuation despite `[PATH2]` being safe.
+
 The value based analysis uses Ownership SSA to determine if values are used
 after the move. The address based analysis is an SSA based analysis that
 determines if any uses of an address are reachable from a move. All of these are
-already in tree behind the `-enable-experimental-move-only` frontend flag.
+already in tree and can be used today by invoking the stdlib non-API function
+"_move". *NOTE* This function is always emit into client and transparent so
+there isn't an ABI impact so it is ok/people can try it.
 
 ## Source compatibility
 
@@ -327,5 +375,4 @@ suggesting adding an additional API would not be idiomatic.
 
 ## Acknowledgments
 
-Thanks to Andrew Trick as always for the great conversations that lead to this
-proposal!
+Thanks to Nate Chandler, Tim Kientzle, Joe Groff for their help with this!
