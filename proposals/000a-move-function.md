@@ -112,7 +112,7 @@ will just insert an extra copy of `x` implicitly before calling the first
 func useX(_ x: SomeClassType) -> () {}
 func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func g(_ x: SomeClassType) -> () {
+func f(_ x: SomeClassType) -> () {
   useX(x)
   let hiddenCopy = x
   consumeX(hiddenCopy)
@@ -145,11 +145,11 @@ an error diagnostic. Lets look at this in practice using the following code:
 func useX(_ x: SomeClassType) -> () {}
 func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func h(_ x: SomeClassType) -> () { // Creation of x binding
+func f() -> () {
+  let x = ...     // Creation of x binding
   useX(x)
   let _ = move(x) // Lifetime of x is ended here.
-  useX(x)         // !! but we use it here...
-  consumeX(x)     // !!   and here afterwards. Error?!
+  useX(x)         // !! But we use it here afterwards. Error?!
 }
 ```
 
@@ -157,8 +157,8 @@ In this case, we get the following output from the compiler as expected:
 
 ```
 test.swift:7:15: error: 'x' used after being moved
-func h(_ x: SomeClassType) -> () {
-              ^
+  let x = ...
+          ^
 test.swift:9:11: note: move here
   let _ = move(x)
           ^
@@ -179,7 +179,8 @@ for those uses, e.x.:
 func useX(_ x: SomeClassType) -> () {}
 func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func k(_ x: SomeClassType) -> () {
+func f() -> () {
+  let x = ...
   useX(x)
   let other = x   // other is a new binding used to extend the lifetime of x
   let _ = move(x) // x's lifetime ends
@@ -189,17 +190,18 @@ func k(_ x: SomeClassType) -> () {
 ```
 
 which then successfully compiles. What is important to notice is that move ends
-the lifetime of a specific local let or parameter binding. It is not tied to the
-lifetime of the underlying class being references, just to the binding. That is
-why we could just assign to other to get a value that we could successfully use
-after the move of x. Of course, since other is a local let, we can also apply
-move to that and would also get diagnostics, e.x.:
+the lifetime of a specific local let binding. It is not tied to the lifetime of
+the underlying class being references, just to the binding. That is why we could
+just assign to other to get a value that we could successfully use after the
+move of x. Of course, since other is a local let, we can also apply move to that
+and would also get diagnostics, e.x.:
 
 ```
 func useX(_ x: SomeClassType) -> () {}
 func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func l(_ x: SomeClassType) -> () {
+func f() -> () {
+  let x = ...
   useX(x)
   let other = x
   let _ = move(x)
@@ -229,7 +231,8 @@ examples as follows,
 func useX(_ x: SomeClassType) -> () {}
 func consumeX(_ x: __owned SomeClassType) -> () {}
 
-func m(_ x: SomeClassType) -> () {
+func f() -> () {
+  let x = ...
   useX(x)
   let other = x
   let _ = move(x)
@@ -243,8 +246,8 @@ we get separable nice diagnostics:
 
 ```
 test.swift:7:15: error: 'x' used after being moved
-func m(_ x: SomeClassType) -> () {
-              ^
+  let x = ...
+          ^
 test.swift:10:11: note: move here
   let _ = move(x)
           ^
@@ -262,6 +265,23 @@ test.swift:12:3: note: use here
   ^
 ```
 
+If one applies move to a var, one gets the same semantics as let except that one
+can begin using the var again after one re-assigns to the var, e.x.:
+
+```
+func f() {
+  var x = getValue()
+  let _ = move(x)
+  // Can't use x here.
+  x = getValue()
+  // But I can use x here, since x now has a new value
+  // within it.
+}
+```
+
+This follows from move being applied to the binding (`x`), not the value in the
+binding (the value returned from `getValue()`).
+
 NOTE: In the future, we may add support for globals/ivars, but for now we have
 restricted where you can use this to only the places where we have taught the
 compiler how to emit diagnostics. If one attempts to use move on something we
@@ -269,7 +289,7 @@ don’t support, one will get an error diagnostic, e.x.:
 
 ```
 var global = SomeClassType()
-func n() -> () {
+func f() {
   let _ = move(global)
 }
 ```
@@ -322,10 +342,11 @@ In practice, the way to think about this dataflow is to think about paths
 through the program. Consider our previous example with some annotations:
 
 ```
+let x = ...
 // [PATH1][PATH2]
 if (...) {
   // [PATH1] (if true)
-  let y = move(x)
+  let _ = move(x)
   // I can't use x anymore here!
 } else {
   // [PATH2] (else)
@@ -341,12 +362,39 @@ the continuation. Notice how the move only occurs along `[PATH1]` but that since
 `[PATH1]` goes through the continuation that one can not use x again in the
 continuation despite `[PATH2]` being safe.
 
+If one works with vars, the analysis is exactly the same except that one can
+conditionally re-initialize the var and thus be able to use it in the
+continuation path. Consider the following example:
+
+```
+var x = ...
+// [PATH1][PATH2]
+if (...) {
+  // [PATH1] (if true)
+  let _ = move(x)
+  // I can't use x anymore here!
+  useX(x) // !! ERROR! Use after move.
+  x = newValue
+  // But now that I have re-assigned into x a new value, I can use the var
+  // again.
+} else {
+  // [PATH2] (else)
+  // I can still use x here!
+}
+// [PATH1][PATH2] (continuation)
+// Since I reinitialized x along [PATH1] I can reuse the var here.
+```
+
+Notice how in the above, we are able to use `x` both in the true block AND the
+continuation block since over all paths, x now has a valid value.
+
 The value based analysis uses Ownership SSA to determine if values are used
-after the move. The address based analysis is an SSA based analysis that
-determines if any uses of an address are reachable from a move. All of these are
-already in tree and can be used today by invoking the stdlib non-API function
-"_move". *NOTE* This function is always emit into client and transparent so
-there isn't an ABI impact so it is ok/people can try it.
+after the move and handles non-address only lets. The address based analysis is
+an SSA based analysis that determines if any uses of an address are reachable
+from a move. All of these are already in tree and can be used today by invoking
+the stdlib non-API function "_move" on a local let or move. *NOTE* This function
+is always emit into client and transparent so there isn't an ABI impact so it is
+safe to have it in front of a flag.
 
 ## Source compatibility
 
