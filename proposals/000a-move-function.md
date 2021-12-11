@@ -3,7 +3,7 @@
 * Proposal: [SE-NNNN](NNNN-move-function.md)
 * Authors: [Michael Gottesman](https://github.com/gottesmm), [Andrew Trick](https://github.com/atrick)
 * Review Manager: TBD
-* Status: **Awaiting implementation**
+* Status: Implemented on main as stdlib SPI (_move instead of move)
 * Pitch v1: https://github.com/gottesmm/swift-evolution/blob/move-function-pitch-v1/proposals/000a-move-function.md
 
 <!--
