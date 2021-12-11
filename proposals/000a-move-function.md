@@ -1,4 +1,4 @@
-# Move Function
+# Move Function + "Use After Move" Diagnostic
 
 * Proposal: [SE-NNNN](NNNN-move-function.md)
 * Authors: [Michael Gottesman](https://github.com/gottesmm), [Andrew Trick](https://github.com/atrick)
