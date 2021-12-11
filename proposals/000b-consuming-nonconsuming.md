@@ -18,27 +18,44 @@
 ## Introduction
 
 Currently in Swift there isn't any way to override the default ownership passing
-semantics that the language uses for function arguments. These rules are that
-the following arguments are passed as consuming:
-
-1. All arguments passed to initializers.
-2. All arguments except for self passed to a setter.
-
-and that all other arguments are passed as nonConsuming. Sometimes when writing
-APIs one needs to be able to control this convention. In this proposal, we
-formalize the semantics of the consuming and nonConsuming function attributes to
-enable this to be expressed in the language.
+semantics that the language uses for function arguments. Sometimes when writing
+certain APIs one needs to be able to control this convention. In this proposal,
+we formalize the semantics of the consuming and nonConsuming function attributes
+to enable this to be expressed in the language.
 
 Swift-evolution thread: [Discussion thread topic for that proposal](https://forums.swift.org/)
 
 ## Motivation
 
-Describe the problems that this proposal seeks to address. If the
-problem is that some common pattern is currently hard to express, show
-how one can currently get a similar effect and describe its
-drawbacks. If it's completely new functionality that cannot be
-emulated, motivate why this new functionality would help Swift
-developers create better Swift code.
+In Swift, all non-trivial function arguments possess a function argument
+convention that defines whether or not management of the lifetime of the
+argument is managed by the caller or the callee. These two convention types are:
+
+* NonConsuming. A non consuming function argument is an argument where the
+  callee does not own the function argument and the caller provides a guarantee
+  to the callee that the lifetime of the argument lasts beyond the end of the
+  callee. Often times people will refer to this as "passing an argument at
+  +0". We use +0 since as a result of the function call, the argument will not
+  be copied.
+
+* Consuming. A consumed function argument is an argument where the caller is
+  passing to the callee ownership. As a result of this, the callee is
+  responsible for ensuring that the lifetime of the argument is managed and may
+  have to destroy the argument. 
+
+As mentioned above, one can not customize these conventions currently and must
+use the default conventions. These conventions are that the following arguments
+are passed as consuming:
+
+1. All arguments passed to initializers.
+2. All arguments except for self passed to a setter.
+
+and that all other arguments of functions are passed as nonConsuming.
+
+Sometimes an API designer needs to be able to customize these since the default
+does not fit their specific situation. Some examples of this are:
+
+1. 
 
 ## Proposed solution
 
