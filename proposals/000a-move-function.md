@@ -282,6 +282,17 @@ func f() {
 This follows from move being applied to the binding (`x`), not the value in the
 binding (the value returned from `getValue()`).
 
+We also support applying the move operation to consuming function arguments:
+
+```
+func f(_ x: __owned SomeClassType) {
+    let _ = move(x)
+    useX(x) // !! Error! Use of x after move
+}
+```
+
+the same rules apply as if one were programming against a local let.
+
 NOTE: In the future, we may add support for globals/ivars, but for now we have
 restricted where you can use this to only the places where we have taught the
 compiler how to emit diagnostics. If one attempts to use move on something we
