@@ -4,6 +4,7 @@
 * Authors: [Michael Gottesman](https://github.com/gottesmm), [Andrew Trick](https://github.com/atrick)
 * Review Manager: TBD
 * Status: **Awaiting implementation**
+* Pitch v1: https://github.com/gottesmm/swift-evolution/blob/move-function-pitch-v1/proposals/000a-move-function.md
 
 <!--
 *During the review process, add the following fields as needed:*
