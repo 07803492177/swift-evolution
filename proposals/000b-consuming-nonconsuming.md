@@ -4,6 +4,7 @@
 * Authors: [Michael Gottesman](https://github.com/swiftdev)
 * Review Manager: TBD
 * Status: **Awaiting implementation**
+* Pitch v1: [https://github.com/gottesmm/swift-evolution/blob/consuming-nonconsuming-pitch-v1/proposals/000b-consuming-nonconsuming.md](https://github.com/gottesmm/swift-evolution/blob/consuming-nonconsuming-pitch-v1/proposals/000b-consuming-nonconsuming.md)
 
 <!--
 *During the review process, add the following fields as needed:*
