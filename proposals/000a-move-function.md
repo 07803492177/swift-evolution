@@ -291,7 +291,52 @@ func f(_ x: __owned SomeClassType) {
 }
 ```
 
-the same rules apply as if one were programming against a local let.
+the same rules apply as if one were programming against a local
+let.
+
+Analogously, we support applying the move operation to inout function arguments
+which are similar to programming against a var that has an implicit liveness use
+on function exit. Thus, one has the semantics that one can safely move a value
+out of an inout parameter with a compile time guarantee that the inout will be
+reinitialized upon function return:
+
+```
+func f(_ buffer: inout Buffer) { // !! Error! 'buffer' used after being moved!
+  let b = move(buffer)           // !! move was here
+  b.deinitialize()
+  ... write code ...
+}                                // !! use was here
+```
+
+and we get the resulting diagnostic from the compiler as expected:
+
+```
+/Volumes/Data/work/solon/swift/test/SILOptimizer/move_function_kills_copyable_addressonly_vars.swift:97:37: error: 'p' used after being moved
+public func performMoveOnInOut<T>(_ p: inout T) { // expected-error {{'p' used after being moved}}
+                                    ^
+/Volumes/Data/work/solon/swift/test/SILOptimizer/move_function_kills_copyable_addressonly_vars.swift:98:15: note: move here
+    let buf = _move(p)
+              ^
+/Volumes/Data/work/solon/swift/test/SILOptimizer/move_function_kills_copyable_addressonly_vars.swift:100:1: note: use here
+}
+^
+```
+
+To eliminate the diagnostic, we need to re-initialize buffer by writing the
+following code:
+
+```
+func f(_ buffer: inout Buffer) {
+  let b = move(buffer)
+  b.deinitialize()
+  // ... write code ...
+  // We re-initialized buffer before end of function so the checker is satisfied
+  buffer = getNewInstance()
+}
+```
+
+This diagnostic as incremental QoI should be improved to give a more specific
+diagnostic.
 
 NOTE: In the future, we may add support for globals/ivars, but for now we have
 restricted where you can use this to only the places where we have taught the
