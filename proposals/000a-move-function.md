@@ -81,7 +81,7 @@ early in preparation for the addition of move semantics to the language. Since
 this aspect is not directly related to this proposal, the author will not
 mention it further.
 
-Swift-evolution thread: [Discussion thread topic for that proposal](https://forums.swift.org/)
+Swift-evolution pitch thread: [https://forums.swift.org/t/pitch-move-function-use-after-move-diagnostic](https://forums.swift.org/t/pitch-move-function-use-after-move-diagnostic)
 
 ## Motivation: Allow binding lifetimes to be ended by use of the move function
 
