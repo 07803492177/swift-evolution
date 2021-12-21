@@ -109,7 +109,7 @@ by default have the opposite convention, an ABI break would occur. Thus for
 instance, if one marked an initializer argument with consuming or a normal
 function parameter with nonconsuming, one would not break ABI. Example:
 
-```
+```swift
 struct SortedArray {
     // consuming matches default convention => no ABI difference.
     init(_ array: consuming [SomeClass]) { ... }
