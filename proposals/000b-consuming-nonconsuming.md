@@ -21,8 +21,8 @@
 Currently in Swift there isn't any way to override the default ownership passing
 semantics that the language uses for function arguments. Sometimes when writing
 certain APIs one needs to be able to control this convention. In this proposal,
-we formalize the semantics of the consuming and nonConsuming function attributes
-to enable this to be expressed in the language.
+we formalize the semantics of the consuming and nonConsuming type attributes to
+enable this to be expressed in the language.
 
 Swift-evolution thread: [Discussion thread topic for that proposal](https://forums.swift.org/)
 
@@ -32,33 +32,30 @@ In Swift, all non-trivial function arguments possess a function argument
 convention that defines whether or not management of the lifetime of the
 argument is managed by the caller or the callee. These two convention types are:
 
-* NonConsuming. A non consuming function argument is an argument where the
-  callee does not own the function argument and the caller provides a guarantee
-  to the callee that the lifetime of the argument lasts beyond the end of the
-  callee. Often times people will refer to this as "passing an argument at
-  +0". We use +0 since as a result of the function call, the argument will not
-  be copied.
+* Consuming. The caller function is transferring ownership of an argument value
+  to the callee. The callee is responsible for managing the lifetime of the
+  value and may even have to destroy the value. The caller must copy any value
+  that it does not own to pass as a consuming argument.
 
-* Consuming. A consumed function argument is an argument where the caller is
-  passing to the callee ownership. As a result of this, the callee is
-  responsible for ensuring that the lifetime of the argument is managed and may
-  have to destroy the argument. 
+* NonConsuming. The caller function is lending ownership of an argument value to
+  the callee. The callee does not own the value and thus must copy the value to
+  use the value in a consuming manner (e.x.: passing as a consuming argument)
 
-As mentioned above, one can not customize these conventions currently and must
-use the default conventions. These conventions are that the following arguments
-are passed as consuming:
+By default Swift determines the convention used based on the type of function
+declaration an argument is passed to and the argument's position. Specifically,
+all arguments are passed as non consuming by default unless they are in one of
+the following sets of arguments:
 
 1. All arguments passed to initializers.
-2. All arguments except for self passed to a setter.
-
-and that all other arguments of functions are passed as nonConsuming.
+2. All arguments passed to a setter except for self. Self is still passed as
+   non-consuming
 
 Sometimes an API designer needs to be able to customize these since the default
 does not fit their specific situation. Some examples of this are:
 
 1. Passing a non-consuming parameter to an initializer or setter if one is going
    to actually internally to the function consume a derived value from that
-   parameter. Example: String initializer for Substring.
+   parameter. Example: [String initializer for Substring](https://github.com/apple/swift/blob/09507f59cf36e83ebc2d1d1ab85cba8f4fc2e87c/stdlib/public/core/Substring.swift#L22).
 
 2. Passing a consuming parameter to a normal function or method that isn't a
    setter. Example: bridging APIs, mutating functions like insertNew
@@ -71,7 +68,8 @@ values in the future in standard library APIs.
 
 The compiler already internally supports these semantics in the guise of the
 underscored keywords: `__owned` and `__shared`. We propose that we rename these
-keywords to `consuming` and `nonConsuming` and remove the underscores.
+keywords to `consuming` and `nonConsuming` and make them true features in the
+language.
 
 ## Detailed design
 
@@ -139,4 +137,4 @@ simplify what the author must remember.
 ## Acknowledgments
 
 Thanks to Robert Widmann for the original underscored implementation of
-`__owned` and `__shared`.
+`__owned` and `__shared`: [https://forums.swift.org/t/ownership-annotations/11276](https://forums.swift.org/t/ownership-annotations/11276).
