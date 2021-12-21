@@ -1,7 +1,7 @@
-# Defining consuming and nonConsuming function attributes and consuming method attribute
+# Defining consuming and nonconsuming argument type modifiers and adding a consuming method attribute
 
 * Proposal: [SE-NNNN](NNNN-consuming-nonconsuming.md)
-* Authors: [Michael Gottesman](https://github.com/gottesmm) [Andrew Trick](https://github.com/atrick)
+* Authors: [Michael Gottesman](https://github.com/gottesmm), [Andrew Trick](https://github.com/atrick)
 * Review Manager: TBD
 * Status: **Awaiting implementation**
 * Pitch v1: [https://github.com/gottesmm/swift-evolution/blob/consuming-nonconsuming-pitch-v1/proposals/000b-consuming-nonconsuming.md](https://github.com/gottesmm/swift-evolution/blob/consuming-nonconsuming-pitch-v1/proposals/000b-consuming-nonconsuming.md)
@@ -18,121 +18,209 @@
 
 ## Introduction
 
-Currently in Swift there isn't any way to override the default ownership passing
-semantics that the language uses for function arguments. Sometimes when writing
-certain APIs one needs to be able to control this convention. In this proposal,
-we formalize the semantics of the consuming and nonConsuming type attributes to
-enable this to be expressed in the language.
+By default the Swift compiler uses simple heuristics to determine whether a
+function takes ownership of its arguments. In some cases, these heuristics
+result in compiled code that forces the caller or callee to insert unnecessary
+copies and or destroys. We propose new `consuming` and `nonconsuming` keywords
+to allow developers to override said compiler heuristics and explicitly chose
+the convention used by the compiler when writing performance sensitive code.
 
 Swift-evolution thread: [Discussion thread topic for that proposal](https://forums.swift.org/)
 
 ## Motivation
 
-In Swift, all non-trivial function arguments possess a function argument
-convention that defines whether or not management of the lifetime of the
-argument is managed by the caller or the callee. These two convention types are:
+In Swift, all non-trivial function arguments use one of two conventions that
+specify if a caller or callee function is responsible for managing the
+argument's lifetime. The two conventions are:
 
-* Consuming. The caller function is transferring ownership of an argument value
-  to the callee. The callee is responsible for managing the lifetime of the
-  value and may even have to destroy the value. The caller must copy any value
-  that it does not own to pass as a consuming argument.
+* **`consuming`**. The caller function is transferring ownership of a value to
+  the callee function. The callee then becomes responsible for managing the
+  lifetime of the value. Semantically, this is implemented by requiring the
+  caller to emit an unbalanced retain to be emitted upon the value that then
+  must be balanced by code in the callee. Due to the unbalanced retain, passing
+  an argument as consuming is called passing the argument "at +1". If the value
+  in the caller is a `consuming` argument itself, the caller can use the callee
+  to balance the argument's unbalanced retain.
 
-* NonConsuming. The caller function is lending ownership of an argument value to
-  the callee. The callee does not own the value and thus must copy the value to
-  use the value in a consuming manner (e.x.: passing as a consuming argument)
+* **`nonconsuming`**. The caller function is lending ownership of a value to the
+  callee. The callee does not own the value and must retain the value to consume
+  it (e.x.: passing as a consuming argument). A reference counted `nonconsuming`
+  argument is called a "+0 argument" since it is passed without emitting an
+  unbalanced retain (in contrast to a "+1 argument") and all retain/release pairs
+  are properly balanced locally within the caller/callee rather than over the
+  call boundary.
 
-By default Swift determines the convention used based on the type of function
-declaration an argument is passed to and the argument's position. Specifically,
-all arguments are passed as non consuming by default unless they are in one of
-the following sets of arguments:
+By default Swift chooses which convention to use based upon the function type of
+the callee as well as the position of the argument in the callee's argument
+list. Specifically:
 
-1. All arguments passed to initializers.
-2. All arguments passed to a setter except for self. Self is still passed as
-   non-consuming
+1. If a callee is an initializer, then an argument is always passed as
+   `consuming`.
 
-Sometimes an API designer needs to be able to customize these since the default
-does not fit their specific situation. Some examples of this are:
+2. If a callee is a setter, then an argument is passed as `consuming` if the
+   argument is a non-self argument.
 
-1. Passing a non-consuming parameter to an initializer or setter if one is going
-   to actually internally to the function consume a derived value from that
-   parameter. Example: [String initializer for Substring](https://github.com/apple/swift/blob/09507f59cf36e83ebc2d1d1ab85cba8f4fc2e87c/stdlib/public/core/Substring.swift#L22).
+3. Otherwise regardless of the callee type, an argument is always passed as
+   `nonconsuming`.
 
-2. Passing a consuming parameter to a normal function or method that isn't a
-   setter. Example: bridging APIs, mutating functions like insertNew
-   Dictionary.insertNew and Array.append.
+Over all, these defaults been found to work well, but in performance sensitive
+situations an API designer may need to customize these defaults to eliminate
+unnecessary copies and destroys. Despite that need, today there is not a source
+stable syntax in the language to customize those defaults.
 
-These are especially important in the face of us wanting to support move only
-values in the future in standard library APIs.
+## Motivating Examples
+
+Despite the lack of such syntax, the compiler for some time has provided
+underscored, source unstable keywords that have met that need by allowing users
+to override the default conventions:
+
+1. `__shared`. This is equivalent to `nonconsuming`.
+2. `__owned`. This is equivalent to `consuming`.
+3. `__consuming`. This is used to have methods take self as a `consuming` parameter.
+
+Here are some examples of situations where developers have found it necessary to
+use these underscored attributes to eliminate overhead caused by using the
+default conventions:
+
+* Passing a non-consuming parameter to an initializer or setter if one is going
+  to consume a value derived from the parameter instead of the parameter itself.
+
+  1. [String initializer for Substring](https://github.com/apple/swift/blob/09507f59cf36e83ebc2d1d1ab85cba8f4fc2e87c/stdlib/public/core/Substring.swift#L22). This API uses the underscored API `__shared` since the String is going to copy the substring.
+   ```swift
+   extension String {
+     /// Creates a new string from the given substring.
+     ///
+     /// - Parameter substring: A substring to convert to a standalone `String`
+     ///   instance.
+     ///
+     /// - Complexity: O(*n*), where *n* is the length of `substring`.
+     @inlinable
+     public init(_ substring: __shared Substring) {
+       self = String._fromSubstring(substring)
+     }
+   }
+   ```
+  2. Initializing a cryptographic algorithm state by accumulating over a collection. Example: [ChaCha](  https://github.com/apple/swift/blob/324cccd18e9297b3cea9fc88d1ce80a0debe657e/benchmark/single-source/ChaCha.swift#L59). In this case, the ChaCha state is initialized using the collection's contents rather than the collection itself.
+    ```swift
+    init<Key: Collection, Nonce: Collection>(key: __shared Key, nonce: Nonce, counter: UInt32) where Key.Element == UInt8, Nonce.Element == UInt8 {
+        // The ChaCha20 state is initialized as follows:
+        //
+        // - The first four words (0-3) are constants: 0x61707865, 0x3320646e,
+        //     0x79622d32, 0x6b206574.
+        self._state.0 = 0x61707865
+        self._state.1 = 0x3320646e
+        self._state.2 = 0x79622d32
+        self._state.3 = 0x6b206574
+
+        // - The next eight words (4-11) are taken from the 256-bit key by
+        //     reading the bytes in little-endian order, in 4-byte chunks.
+        //
+        // We force unwrap here because we have already preconditioned on the length.
+        var keyIterator = CollectionOf32BitLittleEndianIntegers(key).makeIterator()
+        self._state.4 = keyIterator.next()!
+        self._state.5 = keyIterator.next()!
+        self._state.6 = keyIterator.next()!
+        /* snip */
+    }
+    ```
+* Passing a consuming parameter to a normal function or method that isn't a
+  setter but acts like a setter.
+    1. Implementing append on a collection. Example: [Array.append(_:)](https://github.com/apple/swift/blob/324cccd18e9297b3cea9fc88d1ce80a0debe657e/stdlib/public/core/Array.swift#L1167). In this example, we want to forward the element directly into memory without inserting a retain, so we must use the underscored attribute `__owned` to change the default convention to be consuming.
+    ```swift
+    public mutating func append(_ newElement: __owned Element) {
+      // Separating uniqueness check and capacity check allows hoisting the
+      // uniqueness check out of a loop.
+      _makeUniqueAndReserveCapacityIfNotUnique()
+      let oldCount = _buffer.mutableCount
+      _reserveCapacityAssumingUniqueBuffer(oldCount: oldCount)
+      _appendElementAssumeUniqueAndCapacity(oldCount, newElement: newElement)
+      _endMutation()
+    }
+    ```
+    2. Bridging APIs. Example: [_bridgeAnythingNonVerbatimToObjectiveC()](https://github.com/apple/swift/blob/324cccd18e9297b3cea9fc88d1ce80a0debe657e/stdlib/public/core/BridgeObjectiveC.swift#L216). In this case, we want to consume the object into its bridged representation so we do not have to copy when bridging.
+    ```swift
+    func _bridgeAnythingNonVerbatimToObjectiveC<T>(_ x: __owned T) -> AnyObject
+    ```
+* Consuming self when calling a method that is not an initializer.
+    1. Creating an iterator for a collection. Example: [Collection.makeIterator()](https://github.com/apple/swift/blob/324cccd18e9297b3cea9fc88d1ce80a0debe657e/stdlib/public/core/Collection.swift#L1008). The iterator needs to have a reference to self so to reduce ARC traffic, we pass self into makeIterator at +1.
+    ```swift
+    extension Collection where Iterator == IndexingIterator<Self> {
+      /// Returns an iterator over the elements of the collection.
+      @inlinable
+      public __consuming func makeIterator() -> IndexingIterator<Self> {
+        return IndexingIterator(_elements: self)
+      }
+    }
+    ```
+    2. Sequence based algorithms that use iterators. Example: [Sequence.filter()](https://github.com/apple/swift/blob/324cccd18e9297b3cea9fc88d1ce80a0debe657e/stdlib/public/core/Sequence.swift#L678). In this case since we are using makeIterator, we need self to be __consuming.
+    ```swift
+      @inlinable
+      public __consuming func filter(
+        _ isIncluded: (Element) throws -> Bool
+      ) rethrows -> [Element] {
+        var result = ContiguousArray<Element>()
+
+        var iterator = self.makeIterator()
+
+        while let element = iterator.next() {
+          if try isIncluded(element) {
+            result.append(element)
+          }
+        }
+
+        return Array(result)
+      }
+    ```
+
+In all of the above cases, by using underscored attributes, authors changed the
+default convention since it introduced extra copy/destroys.
 
 ## Proposed solution
 
-The compiler already internally supports these semantics in the guise of the
-underscored keywords: `__owned` and `__shared`. We propose that we rename these
-keywords to `consuming` and `nonConsuming` and make them true features in the
-language.
+As mentioned in the previous section, the compiler already internally supports
+these semantics in the guise of underscored, source unstable keywords `__owned`,
+`__shared` and for self the keyword `__consuming`. We propose that we:
+
+1. Add two new keywords to the language: `consuming` and `nonconsuming`.
+
+2. Make `consuming` a synonym for `__consuming` when using `__consuming` to make
+   self a +1 parameter.
+
+3. On non-self parameters, make `consuming` a synonym for `__owned` and
+   `nonconsuming` a synonym for `__shared`.
 
 ## Detailed design
 
-Since `__owned` and `__shared` have existed for many years already and been in
-used in the stdlib for many years as well (thus have a solid implementation
-already), the only real work here is to:
-
-1. Refactor the compiler to accept the new names and the old names.
-2. Change the internals of the compiler to refer to consuming and non consuming
-   instead of owned/shared. The frontend in either case of using the old/new
-   names would use the refactored code path. None of this will be user visible.
+The only work that is required is to add support to the compiler for accepting
+the new spellings mentioned (`consuming` and `nonconsuming`) for the underscored
+variants of those keywords.
 
 ## Source compatibility
 
-In order to ensure source compatibility, as mentioned above, we will still
-accept `__owned` and `__shared` initially and will begin a deprecation cycle
-starting in the swift version after this proposal is accepted. In that release,
-we would begin to emit deprecation warnings with a fixit to tell people to
-perform the conversion. Then in the N+2 swift version, we will then stop
-accepting `__owned` and `__shared`. The reason why we are doing this is that
-unfortunately certain projects outside of the stdlib have started to use
-`__owned` and `__shared` without them being accepted into the language
-itself. We could be difficult and just break them, but that is relatively
-unfriendly to our users thus the authors would prefer to avoid doing that if
-possible.
+Since we are just adding new spellings for things that already exist in the
+compiler, this is additive and there isn't any source compatibility impact.
 
 ## Effect on ABI stability
 
 This should not effect the ABI of any existing language features since all uses
-that already use `__owned`, `__shared` will be unchanged semanitcally and any
-other potential uses of the new keywords directly are additive.
+that already use `__owned`, `__shared`, and `__consuming` will work just as
+before. Any uses of `consuming`, `nonconsuming` will be additive and thus not
+impact ABI stability.
 
 ## Effect on API resilience
 
-If a user marks a parameter as consuming or nonconsuming and the parameter would
-by default have the opposite convention, an ABI break would occur. Thus for
-instance, if one marked an initializer argument with consuming or a normal
-function parameter with nonconsuming, one would not break ABI. Example:
-
-```swift
-struct SortedArray {
-    // consuming matches default convention => no ABI difference.
-    init(_ array: consuming [SomeClass]) { ... }
-
-    // ABI is changed from default to be nonconsuming => ABI difference
-    init(_ array: nonconsuming [SomeClass]) { ... }
-
-    // nonconsuming matches the default convention => no ABI difference.
-    func useSomeClass(_ elt: nonconsuming SomeClass) { ... }
-
-    // consuming does not match the default convention => ABI difference.
-    func append(_ elt: consuming SomeClass) { ... }
-}
-```
+Changing a parameter from `consuming` to `nonconsuming` or vice versa is an
+ABI-breaking change. Adding an annotation that matches the default convention
+does not change the ABI.
 
 ## Alternatives considered
 
-We could reuse `owned` and `shared` and just remove the underscore. This was
+We could reuse `owned` and `shared` and just remove the underscores. This was
 viewed as confusing since `shared` is used in other contexts since `shared` can
-mean a "shared borrow" to steal Rust terminology a much stronger condition than
-`nonconsuming` is. Once one realizes that shared's semantics should be called
-`nonconsuming`, it is natural to also rename `owned` to `consuming` as well to
-simplify what the author must remember.
+mean a rust like "shared borrow" which is a much stronger condition than
+`nonconsuming` is. Additionally, since we already will be using `consuming` to
+handle +1 for self, for consistency it makes sense to also rename `owned` to
+`consuming`.
 
 ## Acknowledgments
 
