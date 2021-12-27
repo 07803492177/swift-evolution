@@ -36,11 +36,9 @@ argument's lifetime. The two conventions are:
 * **`consuming`**. The caller function is transferring ownership of a value to
   the callee function. The callee then becomes responsible for managing the
   lifetime of the value. Semantically, this is implemented by requiring the
-  caller to emit an unbalanced retain to be emitted upon the value that then
-  must be balanced by code in the callee. Due to the unbalanced retain, passing
-  an argument as consuming is called passing the argument "at +1". If the value
-  in the caller is a `consuming` argument itself, the caller can use the callee
-  to balance the argument's unbalanced retain.
+  caller to emit an unbalanced retain upon the value that then must be balanced
+  by a consuming operation in the callee. This unbalanced retain causes such an
+  operation to be called "passing the argument at +1".
 
 * **`nonconsuming`**. The caller function is lending ownership of a value to the
   callee. The callee does not own the value and must retain the value to consume
@@ -65,14 +63,14 @@ list. Specifically:
 
 Over all, these defaults been found to work well, but in performance sensitive
 situations an API designer may need to customize these defaults to eliminate
-unnecessary copies and destroys. Despite that need, today there is not a source
-stable syntax in the language to customize those defaults.
+unnecessary copies and destroys. Despite that need, today there does not exist
+source stable Swift syntax for customizing those defaults.
 
 ## Motivating Examples
 
-Despite the lack of such syntax, the compiler for some time has provided
-underscored, source unstable keywords that have met that need by allowing users
-to override the default conventions:
+Despite the lack of such source stable syntax, to support the stdlib, the
+compiler has for some time provided underscored, source unstable keywords that
+allowed stdlib authors to override the default conventions:
 
 1. `__shared`. This is equivalent to `nonconsuming`.
 2. `__owned`. This is equivalent to `consuming`.
@@ -179,9 +177,7 @@ these semantics in the guise of underscored, source unstable keywords `__owned`,
 
 ## Detailed design
 
-We modify the type-annotation grammar of Swift to add `consuming` and
-`nonconsuming`. Additionally, we modify the Swift grammar in the following
-manners:
+We propose formally modifying the Swift grammar as follows:
 
 ```
 // consuming, nonconsuming for parameters
@@ -208,10 +204,11 @@ compiler, this is additive and there isn't any source compatibility impact.
 
 ## Effect on ABI stability
 
-This should not effect the ABI of any existing language features since all uses
+This will not effect the ABI of any existing language features since all uses
 that already use `__owned`, `__shared`, and `__consuming` will work just as
-before. Any uses of `consuming`, `nonconsuming` will be additive and thus not
-impact the ABI of existing language features as well.
+before. Applying `consuming`, `nonconsuming` to function arguments will result
+in ABI break to existing functions if the specified convention does not match
+the default convention.
 
 ## Effect on API resilience
 
