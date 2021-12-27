@@ -76,14 +76,14 @@ to override the default conventions:
 
 1. `__shared`. This is equivalent to `nonconsuming`.
 2. `__owned`. This is equivalent to `consuming`.
-3. `__consuming`. This is used to have methods take self as a `consuming` parameter.
+3. `__consuming`. This is used to have methods take self as a `consuming` argument.
 
 Here are some examples of situations where developers have found it necessary to
 use these underscored attributes to eliminate overhead caused by using the
 default conventions:
 
-* Passing a non-consuming parameter to an initializer or setter if one is going
-  to consume a value derived from the parameter instead of the parameter itself.
+* Passing a non-consuming argument to an initializer or setter if one is going
+  to consume a value derived from the argument instead of the argument itself.
 
   1. [String initializer for Substring](https://github.com/apple/swift/blob/09507f59cf36e83ebc2d1d1ab85cba8f4fc2e87c/stdlib/public/core/Substring.swift#L22). This API uses the underscored API `__shared` since the String is going to copy the substring.
    ```swift
@@ -123,7 +123,7 @@ default conventions:
         /* snip */
     }
     ```
-* Passing a consuming parameter to a normal function or method that isn't a
+* Passing a consuming argument to a normal function or method that isn't a
   setter but acts like a setter.
     1. Implementing append on a collection. Example: [Array.append(_:)](https://github.com/apple/swift/blob/324cccd18e9297b3cea9fc88d1ce80a0debe657e/stdlib/public/core/Array.swift#L1167). In this example, we want to forward the element directly into memory without inserting a retain, so we must use the underscored attribute `__owned` to change the default convention to be consuming.
     ```swift
@@ -184,12 +184,30 @@ these semantics in the guise of underscored, source unstable keywords `__owned`,
 1. Add two new keywords to the language: `consuming` and `nonconsuming`.
 
 2. Make `consuming` a synonym for `__consuming` when using `__consuming` to make
-   self a +1 parameter.
+   self a +1 argument.
 
-3. On non-self parameters, make `consuming` a synonym for `__owned` and
+3. On non-self arguments, make `consuming` a synonym for `__owned` and
    `nonconsuming` a synonym for `__shared`.
 
 ## Detailed design
+
+We modify the type-annotation grammar of Swift to add `consuming` and
+`nonconsuming`. Additionally, we modify the Swift grammar in the following
+manners:
+
+```
+// consuming, nonconsuming for parameters
+- type-annotation → : attributes? inout? type
++ type-annotation → : attributes? type-modifiers? type
++ type-modifiers → : type-modifier type-modifier*
++ type-modifier → : inout
++               → : consuming
++               → : nonconsuming
++
+
+// consuming for self
++ declaration-modifier → : consuming
+```
 
 The only work that is required is to add support to the compiler for accepting
 the new spellings mentioned (`consuming` and `nonconsuming`) for the underscored
@@ -205,11 +223,11 @@ compiler, this is additive and there isn't any source compatibility impact.
 This should not effect the ABI of any existing language features since all uses
 that already use `__owned`, `__shared`, and `__consuming` will work just as
 before. Any uses of `consuming`, `nonconsuming` will be additive and thus not
-impact ABI stability.
+impact the ABI of existing language features as well.
 
 ## Effect on API resilience
 
-Changing a parameter from `consuming` to `nonconsuming` or vice versa is an
+Changing a argument from `consuming` to `nonconsuming` or vice versa is an
 ABI-breaking change. Adding an annotation that matches the default convention
 does not change the ABI.
 
