@@ -26,6 +26,7 @@ modifiers to allow developers to override said compiler heuristics and
 explicitly chose the convention used by the compiler when writing performance
 sensitive code.
 
+Pitch thread: [https://forums.swift.org/t/pitch-formally-defining-consuming-and-nonconsuming-argument-type-modifiers](https://forums.swift.org/t/pitch-formally-defining-consuming-and-nonconsuming-argument-type-modifiers)
 Swift-evolution thread: [Discussion thread topic for that proposal](https://forums.swift.org/)
 
 ## Motivation
