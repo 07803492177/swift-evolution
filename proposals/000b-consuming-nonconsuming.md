@@ -21,9 +21,10 @@
 By default the Swift compiler uses simple heuristics to determine whether a
 function takes ownership of its arguments. In some cases, these heuristics
 result in compiled code that forces the caller or callee to insert unnecessary
-copies and destroys. We propose new `consuming` and `nonconsuming` keywords
-to allow developers to override said compiler heuristics and explicitly chose
-the convention used by the compiler when writing performance sensitive code.
+copies and destroys. We propose new `consuming` and `nonconsuming` argument type
+modifiers to allow developers to override said compiler heuristics and
+explicitly chose the convention used by the compiler when writing performance
+sensitive code.
 
 Swift-evolution thread: [Discussion thread topic for that proposal](https://forums.swift.org/)
 
