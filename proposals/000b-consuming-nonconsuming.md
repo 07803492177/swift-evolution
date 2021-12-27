@@ -1,4 +1,4 @@
-# Defining consuming and nonconsuming argument type modifiers and adding a consuming method attribute
+# Formalizing Argument Convention Modifying Argument Type Modifiers
 
 * Proposal: [SE-NNNN](NNNN-consuming-nonconsuming.md)
 * Authors: [Michael Gottesman](https://github.com/gottesmm), [Andrew Trick](https://github.com/atrick)
