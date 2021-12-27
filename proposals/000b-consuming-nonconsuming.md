@@ -1,4 +1,4 @@
-# Formally defining consuming and nonconsuming argument type modifiers
+# Formally defining `consuming` and `nonconsuming` argument type modifiers
 
 * Proposal: [SE-NNNN](NNNN-consuming-nonconsuming.md)
 * Authors: [Michael Gottesman](https://github.com/gottesmm), [Andrew Trick](https://github.com/atrick)
