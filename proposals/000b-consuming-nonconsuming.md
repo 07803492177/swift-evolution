@@ -21,7 +21,7 @@
 By default the Swift compiler uses simple heuristics to determine whether a
 function takes ownership of its arguments. In some cases, these heuristics
 result in compiled code that forces the caller or callee to insert unnecessary
-copies and or destroys. We propose new `consuming` and `nonconsuming` keywords
+copies and destroys. We propose new `consuming` and `nonconsuming` keywords
 to allow developers to override said compiler heuristics and explicitly chose
 the convention used by the compiler when writing performance sensitive code.
 
@@ -85,7 +85,7 @@ default conventions:
 * Passing a non-consuming argument to an initializer or setter if one is going
   to consume a value derived from the argument instead of the argument itself.
 
-  1. [String initializer for Substring](https://github.com/apple/swift/blob/09507f59cf36e83ebc2d1d1ab85cba8f4fc2e87c/stdlib/public/core/Substring.swift#L22). This API uses the underscored API `__shared` since the String is going to copy the substring.
+  1. [String initializer for Substring](https://github.com/apple/swift/blob/09507f59cf36e83ebc2d1d1ab85cba8f4fc2e87c/stdlib/public/core/Substring.swift#L22). This API uses the underscored API `__shared` since semantically the author's want to create a String that is a copy of the substring. Since the Substring itself is not being consumed, without __shared we would have additional ref count traffic.
    ```swift
    extension String {
      /// Creates a new string from the given substring.
@@ -100,22 +100,10 @@ default conventions:
      }
    }
    ```
-  2. Initializing a cryptographic algorithm state by accumulating over a collection. Example: [ChaCha](  https://github.com/apple/swift/blob/324cccd18e9297b3cea9fc88d1ce80a0debe657e/benchmark/single-source/ChaCha.swift#L59). In this case, the ChaCha state is initialized using the collection's contents rather than the collection itself.
+  2. Initializing a cryptographic algorithm state by accumulating over a collection. Example: [ChaCha](  https://github.com/apple/swift/blob/324cccd18e9297b3cea9fc88d1ce80a0debe657e/benchmark/single-source/ChaCha.swift#L59). In this case, the ChaCha state is initialized using the contents of the collection "key" rather than "key" itself. NOTE: One thing to keep in mind with this example is that the optimizer completely inlines away the iterator so even though we use an iterator here. This results in the optimizer eliminating all of the ARC traffic from the usage of the CollectionOf32BitLittleEndianIntegers.makeIterator() causing the only remaining ARC traffic to be related to key being passed as an argument. Hence if we did not use shared, we would have an unnecessary release in init.
     ```swift
     init<Key: Collection, Nonce: Collection>(key: __shared Key, nonce: Nonce, counter: UInt32) where Key.Element == UInt8, Nonce.Element == UInt8 {
-        // The ChaCha20 state is initialized as follows:
-        //
-        // - The first four words (0-3) are constants: 0x61707865, 0x3320646e,
-        //     0x79622d32, 0x6b206574.
-        self._state.0 = 0x61707865
-        self._state.1 = 0x3320646e
-        self._state.2 = 0x79622d32
-        self._state.3 = 0x6b206574
-
-        // - The next eight words (4-11) are taken from the 256-bit key by
-        //     reading the bytes in little-endian order, in 4-byte chunks.
-        //
-        // We force unwrap here because we have already preconditioned on the length.
+        /* snip */
         var keyIterator = CollectionOf32BitLittleEndianIntegers(key).makeIterator()
         self._state.4 = keyIterator.next()!
         self._state.5 = keyIterator.next()!
